@@ -1,10 +1,10 @@
 import { fetchEventSource, EventStreamContentType, EventSourceMessage } from '@microsoft/fetch-event-source';
-import { ChatOptions, LLMApi, LLMModel, LLMUsage, RequestMessage, ResponseContent, MCPToolResponse } from '@/app/adapter/interface';
+import { ChatOptions, LLMApi, LLMModel, LLMUsage, RequestMessage, ResponseContent, MCPToolResponse } from '@/types/llm';
 import { prettyObject } from '@/app/utils';
 import { callMCPTool } from '@/app/utils/mcpToolsServer';
-import { InvalidAPIKeyError, TimeoutError } from '@/app/adapter/errorTypes';
+import { InvalidAPIKeyError, TimeoutError } from '@/types/errorTypes';
 import { mcpToolsToAnthropicTools, anthropicToolUseToMcpTool } from '@/app/utils/mcpToolsClient';
-import { syncMcpTools } from '../actions';
+import { syncMcpTools } from '@/app/admin/llm/actions';
 import {
   MessageCreateParamsNonStreaming,
   MessageParam,
@@ -16,6 +16,9 @@ export default class ClaudeApi implements LLMApi {
   private controller: AbortController | null = null;
   private answer = '';
   private reasoning_content = '';
+  private inputTokens = 0;
+  private outputTokens = 0;
+  private totalTokens = 0;
   private finishReason = '';
   private mcpTools: MCPToolResponse[] = [];
   private finished = false;
@@ -158,9 +161,14 @@ export default class ClaudeApi implements LLMApi {
                 id: json.metadata.messageId,
                 content: this.answer,
                 reasoning_content: this.reasoning_content,
+                inputTokens: this.inputTokens,
+                outputTokens: this.outputTokens,
+                totalTokens: this.totalTokens,
                 mcpTools: this.mcpTools,
               }, true);
               syncMcpTools(json.metadata.messageId, this.mcpTools);
+              this.answer = '';
+              this.reasoning_content = '';
               this.mcpTools = [];
 
               if (!this.controller) {
@@ -173,6 +181,7 @@ export default class ClaudeApi implements LLMApi {
                   headers: {
                     'Content-Type': 'application/json',
                     'X-Provider': 'claude',
+                    'X-Model': options.config.model,
                     'X-Chat-Id': options.chatId!,
                   },
                   body: JSON.stringify({
@@ -234,11 +243,13 @@ export default class ClaudeApi implements LLMApi {
                 clearTimeout(timeoutId);
               }
             } else {
-              // const shouldContinue: boolean = this.finishReason === 'tool_use';
               options.onFinish({
                 id: json.metadata.messageId,
                 content: this.answer,
                 reasoning_content: this.reasoning_content,
+                inputTokens: this.inputTokens,
+                outputTokens: this.outputTokens,
+                totalTokens: this.totalTokens,
                 mcpTools: this.mcpTools,
               }, false);
               syncMcpTools(json.metadata.messageId, this.mcpTools);
@@ -275,6 +286,13 @@ export default class ClaudeApi implements LLMApi {
             });
           }
 
+          if (type === 'message_stop') {
+            const usage = json.usage || json['amazon-bedrock-invocationMetrics'];
+            this.inputTokens = usage.inputTokenCount;
+            this.outputTokens = usage.outputTokenCount;
+            this.totalTokens = usage.inputTokenCount + usage.outputTokenCount;
+          }
+
         } catch (e) {
           console.error("[Request] parse error", `--------${text}------`, `===--${event}---`);
         }
@@ -298,6 +316,7 @@ export default class ClaudeApi implements LLMApi {
         headers: {
           'Content-Type': 'application/json',
           'X-Provider': 'claude',
+          'X-Model': options.config.model,
           'X-Chat-Id': options.chatId!,
         },
         body: JSON.stringify({
@@ -381,6 +400,7 @@ export default class ClaudeApi implements LLMApi {
       'Content-Type': 'application/json',
       'x-api-key': `${apikey}`,
       'X-Provider': 'claude',
+      'X-Model': modelId,
       'X-Endpoint': apiUrl
     };
     const controller = new AbortController();
@@ -391,7 +411,7 @@ export default class ClaudeApi implements LLMApi {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          "stream": false,
+          "stream": true,
           'max_tokens': 2048,
           "model": modelId,
           "messages": [{

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Divider, Tooltip, Button, Popconfirm, Popover, message } from 'antd';
-import { EyeInvisibleOutlined, DeleteOutlined, SettingOutlined, PictureOutlined, DownOutlined, HolderOutlined } from '@ant-design/icons';
+import { Divider, Tooltip, Button, Popconfirm, message } from 'antd';
+import { EyeInvisibleOutlined, DeleteOutlined, SettingOutlined, PictureOutlined, ToolOutlined, HolderOutlined } from '@ant-design/icons';
 import useModelListStore from '@/app/store/modelList';
-import { LLMModel } from '@/app/adapter/interface';
-import { changeSelectInServer, deleteCustomModelInServer, saveModelsOrder } from '@/app/adapter/actions';
-import ManageAllModelModal from '@/app/adapter/common/ManageAllModelModal';
+import { LLMModel } from '@/types/llm';
+import { changeSelectInServer, deleteCustomModelInServer, saveModelsOrder } from '@/app/admin/llm/actions';
+import ManageAllModelModal from '@/app/components/admin/llm/ManageAllModelModal';
 import Sortable from 'sortablejs';
 import { useTranslations } from 'next-intl';
 
@@ -97,6 +97,11 @@ const ModelList: React.FC<ModelListProps> = ({
                 {
                   item?.supportVision && <><Divider type="vertical" /><Tooltip title={t('supportVision')}>
                     <PictureOutlined style={{ color: '#888' }} />
+                  </Tooltip></>
+                }
+                {
+                  item?.supportTool && <><Divider type="vertical" /><Tooltip title={t('supportTool')}>
+                    <ToolOutlined style={{ color: '#888' }} />
                   </Tooltip></>
                 }
               </div>

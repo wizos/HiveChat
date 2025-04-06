@@ -1,13 +1,12 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Message } from '@/app/db/schema';
-import { ChatOptions, LLMApi, RequestMessage, MessageContent, MCPTool } from '@/app/adapter/interface';
+import { ChatOptions, LLMApi, RequestMessage, MessageContent, MCPTool } from '@/types/llm';
 import useChatStore from '@/app/store/chat';
 import useChatListStore from '@/app/store/chatList';
 import useMcpServerStore from '@/app/store/mcp';
-import { generateTitle } from '@/app/utils';
-import { getLLMInstance } from '@/app/adapter/models';
+import { generateTitle, getLLMInstance } from '@/app/utils';
 import useModelListStore from '@/app/store/modelList';
-import { ResponseContent } from '@/app/adapter/interface';
+import { ResponseContent } from '@/types/llm';
 import { getChatInfoInServer } from '@/app/chat/actions/chat';
 import { addMessageInServer, getMessagesInServer, deleteMessageInServer, clearMessageInServer } from '@/app/chat/actions/message';
 import useGlobalConfigStore from '@/app/store/globalConfig';
@@ -134,7 +133,7 @@ const useChat = (chatId: string) => {
       mcpTools,
       onUpdate: (responseContent: ResponseContent) => {
         const now = Date.now();
-        // if (now - lastUpdate < 80) return; // 如果距离上次更新小于 50ms，则不更新
+        if (now - lastUpdate < 60) return; // 如果距离上次更新小于 60ms，则不更新
         setResponseMessage(responseContent);
         lastUpdate = now;
       },
@@ -145,6 +144,9 @@ const useChat = (chatId: string) => {
           chatId: chatId,
           content: responseContent.content,
           reasoninContent: responseContent.reasoning_content,
+          inputTokens: responseContent.inputTokens,
+          outputTokens: responseContent.outputTokens,
+          totalTokens: responseContent.totalTokens,
           mcpTools: responseContent.mcpTools,
           providerId: currentModel.provider.id,
           model: currentModel.id,
@@ -172,7 +174,6 @@ const useChat = (chatId: string) => {
         setMessageList((m) => ([...m, respMessage]));
         setResponseStatus("done");
         setResponseMessage({ content: '', reasoning_content: '' });
-        addMessageInServer(respMessage);
       }
     }
     chatBot?.chat(options);
