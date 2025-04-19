@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Divider, Tooltip, Button, Popconfirm, Popover, message } from 'antd';
-import { EyeInvisibleOutlined, DeleteOutlined, SettingOutlined, PictureOutlined, DownOutlined, HolderOutlined } from '@ant-design/icons';
+import { Divider, Tooltip, Button, Popconfirm, message } from 'antd';
+import { EyeInvisibleOutlined, DeleteOutlined, SettingOutlined, PictureOutlined, ToolOutlined, HolderOutlined } from '@ant-design/icons';
 import useModelListStore from '@/app/store/modelList';
-import { LLMModel } from '@/app/adapter/interface';
-import { changeSelectInServer, deleteCustomModelInServer, saveModelsOrder } from '@/app/adapter/actions';
-import ManageAllModelModal from '@/app/adapter/common/ManageAllModelModal';
+import { LLMModel } from '@/types/llm';
+import { changeSelectInServer, deleteCustomModelInServer, saveModelsOrder } from '@/app/admin/llm/actions';
+import ManageAllModelModal from '@/app/components/admin/llm/ManageAllModelModal';
 import Sortable from 'sortablejs';
 import { useTranslations } from 'next-intl';
 
@@ -25,7 +25,6 @@ const ModelList: React.FC<ModelListProps> = ({
 }) => {
   const t = useTranslations('Admin.Models');
   const [isManageAllModalOpen, setIsManageAllModalOpen] = useState(false);
-  const [messageApi, contextHolder] = message.useMessage();
   const { modelList, setModelList, changeSelect, deleteCustomModel } = useModelListStore();
   const listRef = useRef<HTMLDivElement>(null);
   const sortableRef = useRef<Sortable | null>(null);
@@ -99,6 +98,11 @@ const ModelList: React.FC<ModelListProps> = ({
                     <PictureOutlined style={{ color: '#888' }} />
                   </Tooltip></>
                 }
+                {
+                  item?.supportTool && <><Divider type="vertical" /><Tooltip title={t('supportTool')}>
+                    <ToolOutlined style={{ color: '#888' }} />
+                  </Tooltip></>
+                }
               </div>
               <div className='invisible group-hover:visible'>
                 <Tooltip title={t('hide')}>
@@ -111,7 +115,7 @@ const ModelList: React.FC<ModelListProps> = ({
                   description={t('currentModelWillbeDeleted')}
                   onConfirm={() => {
                     handleDeleteCustomModel(item.id);
-                    messageApi.success(t('deleteSuccess'))
+                    message.success(t('deleteSuccess'))
                   }}
                   okText={t('confirm')}
                   cancelText={t('cancel')}

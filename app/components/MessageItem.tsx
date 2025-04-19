@@ -1,8 +1,8 @@
 import React, { useState, useEffect, memo, useMemo } from 'react';
-import { Message } from '@/app/db/schema';
+import { Message } from '@/types/llm';
 import { CopyToClipboard } from 'react-copy-to-clipboard';
 import { Button, Tooltip, message, Alert, Avatar, Popconfirm, Image as AntdImage } from "antd";
-import { CopyOutlined, SyncOutlined, DeleteOutlined, DownOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { CopyOutlined, SyncOutlined, DeleteOutlined, DownOutlined, CheckCircleOutlined, CloseCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import useModelListStore from '@/app/store/modelList';
 import ThinkingIcon from '@/app/images/thinking.svg';
 import MarkdownRender from '@/app/components/Markdown';
@@ -11,6 +11,7 @@ import { useTranslations } from 'next-intl';
 const MessageItem = memo((props: {
   item: Message,
   index: number,
+  isConsecutive: boolean;
   role: 'assistant' | 'user' | 'system',
   retryMessage: (index: number) => void,
   deleteMessage: (index: number) => void
@@ -18,7 +19,6 @@ const MessageItem = memo((props: {
 ) => {
   const t = useTranslations('Chat');
   const { allProviderListByKey } = useModelListStore();
-  const [messageApi, contextHolderMessage] = message.useMessage();
   const [images, setImages] = useState<string[]>([]);
   const [plainText, setPlainText] = useState('');
   const [isOpen, setIsOpen] = useState(true);
@@ -57,6 +57,39 @@ const MessageItem = memo((props: {
               showIcon
               style={{ marginLeft: '0.75rem' }}
               message={t('apiTimeout')}
+              type="warning"
+            />
+            <div className='invisible flex flex-row items-center ml-3 my-1 group-hover:visible'>
+              <Tooltip title={t('deleteNotice')}>
+                <Popconfirm
+                  title={t('deleteNotice')}
+                  description={t('currentMessageDelete')}
+                  onConfirm={() => props.deleteMessage(props.index)}
+                  okText={t('confirm')}
+                  cancelText={t('cancel')}
+                  placement='bottom'
+                >
+                  <Button type="text" size='small'>
+                    <DeleteOutlined style={{ color: 'gray' }} />
+                  </Button>
+                </Popconfirm>
+              </Tooltip>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  if (props.item.type === 'error' && props.item.errorType === 'OverQuotaError') {
+    return (
+      <div className="flex container mx-auto px-4 max-w-screen-md w-full flex-col justify-center items-center" >
+        <div className='items-start flex  max-w-3xl text-justify w-full my-0 pt-0 pb-1 flex-row'>
+          {ProviderAvatar}
+          <div className='flex flex-col w-0 grow group' style={{ maxWidth: '28rem' }}>
+            <Alert
+              showIcon
+              style={{ marginLeft: '0.75rem' }}
+              message="超出本月使用限额。请次月再重试，或联系管理员增加额度。"
               type="warning"
             />
             <div className='invisible flex flex-row items-center ml-3 my-1 group-hover:visible'>
@@ -133,7 +166,6 @@ const MessageItem = memo((props: {
     return <div className="flex container mx-auto pl-4 pr-2 max-w-screen-md w-full flex-col justify-center items-center" >
       <div className='items-start flex max-w-3xl text-justify w-full my-0 pt-0 pb-1 flex-row-reverse'>
         <div className='flex ml-10 flex-col items-end group'>
-          {contextHolderMessage}
           <div className='flex flex-row gap-2 mb-2'>
             {images.length > 0 &&
               images.map((image, index) => {
@@ -191,7 +223,7 @@ const MessageItem = memo((props: {
               </Button>
             </Tooltip>
             <CopyToClipboard text={plainText} onCopy={() => {
-              messageApi.success(t('copySuccess'));
+              message.success(t('copySuccess'));
             }}>
               <Tooltip title={t('copy')}>
                 <Button type="text" size='small'>
@@ -208,10 +240,27 @@ const MessageItem = memo((props: {
     return (
       <div className="flex container mx-auto px-4 max-w-screen-md w-full flex-col justify-center items-center" >
         <div className='items-start flex max-w-3xl text-justify w-full my-0 pt-0 pb-1 flex-row'>
-          {contextHolderMessage}
-          {ProviderAvatar}
+          <div className='flex flex-col h-full'>
+            {ProviderAvatar}
+            {props.isConsecutive && <div className="flex justify-center h-0 grow">
+              <div className="h-full border-l border-dashed border-gray-300 my-1"></div>
+            </div>}
+          </div>
           <div className='flex flex-col w-0 grow group'>
             <div className='px-3 py-2 ml-2  bg-gray-100  text-gray-600 w-full grow markdown-body answer-content rounded-xl'>
+
+              {props.item.searchStatus === "searching" && <div className='flex text-xs flex-row items-center  text-gray-800 bg-gray-100 rounded-md p-2 mb-4'>
+                <SearchOutlined style={{ marginLeft: '4px' }} /> <span className='ml-2'>正在联网搜索...</span>
+              </div>
+              }
+              {props.item.searchStatus === "error" && <div className='flex text-xs flex-row items-center  text-gray-800 bg-gray-100 rounded-md p-2 mb-4'>
+                <SearchOutlined style={{ marginLeft: '4px' }} /> <span className='ml-2'>搜索出错，请联系管理员检查搜索引擎配置</span>
+              </div>
+              }
+              {props.item.searchStatus === "done" && <div className='flex text-xs flex-row items-center  text-gray-800 bg-gray-100 rounded-md p-2 mb-4'>
+                <SearchOutlined style={{ marginLeft: '4px' }} /> <span className='ml-2'>搜索完成</span>
+              </div>
+              }
 
               {props.item.reasoninContent &&
                 <details open={true} className='text-sm mt-1 mb-4'>
@@ -234,7 +283,21 @@ const MessageItem = memo((props: {
                     <MarkdownRender content={props.item.reasoninContent as string} />
                   </div>
                 </details>}
-              <MarkdownRender content={props.item.content as string} />
+              {typeof props.item.content === 'string' && <MarkdownRender content={props.item.content} />
+              }
+
+              {
+                Array.isArray(props.item.content) && props.item.content.map((part, index) =>
+                  <div key={index}>
+                    {part.type === 'text' && <MarkdownRender content={part.text} />}
+                    {part.type === 'image' && <AntdImage
+                      className='cursor-pointer'
+                      src={part.data}
+                      preview={{ mask: false }}
+                      style={{ maxWidth: '250px', borderRadius: '4px', boxShadow: '3px 4px 7px 0px #dedede' }} />}
+                  </div>)
+              }
+
               {
                 props.item.mcpTools && props.item.mcpTools.map((mcp, index) => {
                   return <details open={false} key={index} className='flex flex-row bg-gray-100 hover:bg-slate-100 text-gray-800 rounded-md mb-3  border border-gray-200 text-sm'>
@@ -245,9 +308,11 @@ const MessageItem = memo((props: {
                       onClick={() => { setIsOpen(!isOpen) }}
                     >
                       <span className='mr-2'>调用 {mcp.tool?.serverName} 的工具： {mcp.tool?.name}</span>
-                      <div>
-                        <CheckCircleOutlined style={{ color: 'green' }} /><span className='ml-1 text-green-700'>已完成</span>
-                      </div>
+                      {
+                        mcp.response.isError ?
+                          <div><CloseCircleOutlined style={{ color: 'red' }} /><span className='ml-1 text-red-600'>调用失败</span></div>
+                          : <div><CheckCircleOutlined style={{ color: 'green' }} /><span className='ml-1 text-green-700'>已完成</span></div>
+                      }
                       <DownOutlined
                         className='ml-auto mr-1'
                         style={{
@@ -257,8 +322,11 @@ const MessageItem = memo((props: {
                         }}
                       />
                     </summary>
-                    <div className='p-4 text-xs border-t'>
-                      {JSON.stringify(mcp.response)}
+                    <div className='p-4 pb-0 text-xs border-t'>
+                      <span className='mb-2 font-medium'>输入参数</span>
+                      <pre className='scrollbar-thin' style={{ marginTop: '6px' }}>{JSON.stringify(mcp.tool.inputSchema, null, 2)}</pre>
+                      <span className='mb-2 font-medium'>调用返回</span>
+                      <pre className='scrollbar-thin bg-white' style={{ marginTop: '6px' }}>{JSON.stringify(mcp.response, null, 2)}</pre>
                     </div>
                   </details>
                 })
@@ -266,7 +334,7 @@ const MessageItem = memo((props: {
             </div>
             <div className='invisible flex flex-row items-center pl-1 group-hover:visible'>
               <CopyToClipboard text={plainText} onCopy={() => {
-                messageApi.success(t('copySuccess'));
+                message.success(t('copySuccess'));
               }}>
                 <Tooltip title={t('copy')}>
                   <Button type="text" size='small'>
@@ -297,6 +365,11 @@ const MessageItem = memo((props: {
                   </Button>
                 </Popconfirm>
               </Tooltip>
+              {props.item.totalTokens !== undefined && <>
+                <span className='text-xs text-gray-500 ml-2'>Tokens:{props.item.totalTokens?.toLocaleString()}</span>
+                <span className='text-xs text-gray-500 ml-2'>↑{props.item.inputTokens?.toLocaleString()}</span>
+                <span className='text-xs text-gray-500 ml-2'>↓{props.item.outputTokens?.toLocaleString()}</span>
+              </>}
             </div>
           </div>
         </div>

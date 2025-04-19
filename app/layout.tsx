@@ -5,12 +5,10 @@ import { AntdRegistry } from '@ant-design/nextjs-registry';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import { SessionProvider } from 'next-auth/react';
-import AppPrepare from "@/app/components/AppPrepare";
 import "./globals.css";
 
-
 export const metadata: Metadata = {
-  title: "Hivechat - Chat With All AI",
+  title: "Hivechat - Chatbot for team",
   description: "同时和多个机器人聊天，最快获取最佳结果",
 };
 
@@ -35,7 +33,6 @@ export default async function RootLayout({
         <NextIntlClientProvider messages={messages}>
           <SessionProvider>
             <AntdRegistry>
-            <AppPrepare />
               {children}
             </AntdRegistry>
           </SessionProvider>

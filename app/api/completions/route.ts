@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from "@/auth";
 import { getLlmConfigByProvider, completeEndpoint } from '@/app/utils/llms';
+import { isUserWithinQuota } from './actions';
 import proxyOpenAiStream from './proxyOpenAiStream';
 import proxyClaudeStream from './proxyClaudeStream';
 import proxyGeminiStream from './proxyGeminiStream';
@@ -15,13 +16,29 @@ export async function POST(req: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+  const userId = session.user.id;
   try {
     // 获取原始请求的 headers
     const userRequestHeaders = req.headers;
-    const xProvider = userRequestHeaders.get('X-Provider'); //必填
-    const xChatId = userRequestHeaders.get('x-chat-id');    //对话时必填，测试时不需要
-    const xEndpoint = userRequestHeaders.get('X-Endpoint'); //选填，测试 URL 时需要
-    const xModel = userRequestHeaders.get('X-Model');       //选填，gemini 这种特殊的才有
+    const xProvider = userRequestHeaders.get('X-Provider')  || ''; //必填
+    const xModel = userRequestHeaders.get('X-Model')  || '';       //必填
+    const xChatId = userRequestHeaders.get('x-chat-id');           //对话时必填，测试时不需要
+    const xEndpoint = userRequestHeaders.get('X-Endpoint');        //选填，测试 URL 时需要
+
+    const isUserWithinQuotaResult = await isUserWithinQuota(userId, xProvider, xModel);
+    if (!isUserWithinQuotaResult.tokenPassFlag) {
+      return new Response(JSON.stringify({ error: 'Out of quota' }), {
+        status: 459,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!isUserWithinQuotaResult.modelPassFlag) {
+      return new Response(JSON.stringify({ error: 'Model not allowed' }), {
+        status: 428,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     const { endpoint, apikey } = await getLlmConfigByProvider(xProvider || 'openai');
     // 测试连接下，会传 X-apikey，优先使用
@@ -61,7 +78,7 @@ export async function POST(req: NextRequest) {
     });
     // 检查响应是否成功
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData = await response.text();
       return new Response(JSON.stringify(errorData), {
         status: response.status,
         headers: { 'Content-Type': 'application/json' },
@@ -73,18 +90,21 @@ export async function POST(req: NextRequest) {
         return proxyClaudeStream(response, {
           chatId: xChatId || undefined,
           model: parsedBody?.model || xModel,
+          userId: userId,
           providerId: xProvider
         });
       case 'gemini':
         return proxyGeminiStream(response, {
           chatId: xChatId || undefined,
           model: parsedBody?.model || xModel,
+          userId: userId,
           providerId: xProvider
         });
       default:
         return proxyOpenAiStream(response, {
           chatId: xChatId || undefined,
           model: parsedBody?.model || xModel,
+          userId: userId,
           providerId: xProvider!
         });
     }
