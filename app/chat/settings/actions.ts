@@ -51,3 +51,52 @@ export async function updatePassword(email: string, oldPassword: string, newPass
     }
   }
 }
+
+export const getUserUsage = async () => {
+  const session = await auth();
+  if (!session?.user) {
+    throw new Error('not allowed');
+  }
+  let userTodayTotalTokens = 0;
+  let userCurrentMonthTotalTokens = 0;
+  let userMonthlyTokenLimit = 0;
+  let userTokenLimitType = 'limited';
+  const userDetail = await db.query.users.findFirst({
+    where: eq(users.id, session.user.id),
+    with: {
+      group: {
+        columns: {
+          tokenLimitType: true,
+          monthlyTokenLimit: true,
+        }
+      }
+    }
+  });
+  if (userDetail && userDetail.group) {
+    const { tokenLimitType, monthlyTokenLimit } = userDetail.group;
+    userTokenLimitType = tokenLimitType || 'limited' as const;
+    userMonthlyTokenLimit = monthlyTokenLimit || 0;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const now = new Date();
+  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+
+  if (userDetail?.usageUpdatedAt && new Date(userDetail.usageUpdatedAt) < firstDayOfMonth) {
+    userTodayTotalTokens = 0;
+    userCurrentMonthTotalTokens = 0;
+  } else if (userDetail?.usageUpdatedAt && new Date(userDetail.usageUpdatedAt) < today) {
+    userTodayTotalTokens = 0;
+    userCurrentMonthTotalTokens = userDetail?.currentMonthTotalTokens || 0;
+  } else {
+    userTodayTotalTokens = userDetail?.todayTotalTokens || 0;
+    userCurrentMonthTotalTokens = userDetail?.currentMonthTotalTokens || 0;
+  }
+  return {
+    todayTotalTokens: userTodayTotalTokens,
+    currentMonthTotalTokens: userCurrentMonthTotalTokens,
+    monthlyTokenLimit: userMonthlyTokenLimit,
+    tokenLimitType: userTokenLimitType,
+  }
+}
