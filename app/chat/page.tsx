@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Alert } from 'antd';
 import useModelListStore from '@/app/store/modelList';
 import ChatHeader from '@/app/components/ChatHeader';
-import { MessageContent } from '@/app/adapter/interface';
+import { MessageContent, ChatType } from '@/types/llm';
 import AdaptiveTextarea from '@/app/components/AdaptiveTextarea';
 import { useTranslations } from 'next-intl';
 import { useSession } from 'next-auth/react';
@@ -13,15 +13,14 @@ import { useLoginModal } from '@/app/contexts/loginModalContext';
 import { addChatInServer } from '@/app/chat/actions/chat';
 import { addMessageInServer } from '@/app/chat/actions/message';
 import { fetchAppSettings } from '@/app/chat/actions/chat';
-import { ChatType } from '../db/schema';
-
-import { localDb } from '@/app/db/localDb';
+import useChatStore from '@/app/store/chat';
 
 const Home = () => {
   const t = useTranslations('Chat');
   const router = useRouter();
   const { status } = useSession();
   const { visible, showLogin, hideLogin } = useLoginModal();
+  const { setWebSearchEnabled } = useChatStore();
   const { modelList, currentModel, setCurrentModelExact, isPending } = useModelListStore();
   const { chatList, setChatList } = useChatListStore();
   const [greetingText, setGreetingText] = useState('');
@@ -34,12 +33,12 @@ const Home = () => {
   }, [status, showLogin]);
 
   useEffect(() => {
-    if (!isPending && modelList.length === 0) {
+    if (!isPending && modelList.length === 0 && status === 'authenticated') {
       setShowGuideAlert(true);
     } else {
       setShowGuideAlert(false);
     }
-  }, [isPending, modelList]);
+  }, [isPending, modelList, status]);
 
   useEffect(() => {
     const fetchDefaultChatModel = async () => {
@@ -92,9 +91,14 @@ const Home = () => {
       }
     }
     setGreetingText(t(getGreeting()));
-  }, [t]);
+    setWebSearchEnabled(false)
+  }, [t, setWebSearchEnabled]);
 
-  const newChat = async (text: string, attachments?: Array<{ mimeType: string; data: string }>) => {
+  const newChat = async (
+    text: string,
+    attachments?: Array<{ mimeType: string; data: string }>,
+    searchEnabled?: boolean,
+  ) => {
     let content: MessageContent;
     if (attachments && attachments?.length > 0) {
       const attachmentsMessages = attachments.map((attachment) => {
@@ -118,6 +122,7 @@ const Home = () => {
     const result = await addChatInServer({
       title: t('defaultChatName'),
       defaultModel: currentModel.id,
+      searchEnabled: searchEnabled,
       defaultProvider: currentModel.provider.id,
     });
     if (result.status === 'success') {
@@ -125,6 +130,7 @@ const Home = () => {
         id: result.data?.id,
         title: t('defaultChatName'),
         defaultModel: 'gpt',
+        searchEnabled: searchEnabled,
         createdAt: new Date(),
       };
       setChatList([initInfo as ChatType, ...chatList]);
@@ -134,12 +140,11 @@ const Home = () => {
         role: 'user',
         type: 'text' as const,
         model: currentModel.id,
+        searchEnabled: searchEnabled,
         providerId: currentModel.provider.id,
         createdAt: new Date(),
       };
-      localDb.messages.add(toAddMessage);
       await addMessageInServer(toAddMessage);
-      localStorage.setItem('f', 'home');
       router.push(`/chat/${result.data?.id}?f=home`);
     }
   };
@@ -157,7 +162,7 @@ const Home = () => {
       }
       <div className='flex w-full grow flex-col items-center justify-center h-full'>
         <div className='container max-w-3xl mx-auto -mt-16 relative items-center justify-center'>
-          <h2 className='text-3xl font-bold text-center mb-8'>{greetingText && <>👋 {greetingText}{t('welcomeNotice')}</>}&nbsp;</h2>
+          <h2 className='text-2xl font-bold text-center mb-8'>{greetingText && <>👋 {greetingText}{t('welcomeNotice')}</>}&nbsp;</h2>
           <AdaptiveTextarea model={currentModel} submit={newChat} />
         </div>
       </div>
