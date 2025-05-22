@@ -31,7 +31,16 @@ export async function getUserList(groupId?: string) {
   try {
     if (!groupId || groupId === '_all') {
       result = await db.query.users.findMany({
-        orderBy: [users.createdAt],
+        orderBy: [desc(users.createdAt)],
+        with: {
+          group: {
+            columns: {
+              name: true,
+              tokenLimitType: true,
+              monthlyTokenLimit: true,
+            }
+          }
+        }
       });
     } else {
       result = await db.query.users.findMany({
@@ -41,12 +50,30 @@ export async function getUserList(groupId?: string) {
           group: {
             columns: {
               name: true,
+              tokenLimitType: true,
+              monthlyTokenLimit: true,
             }
           }
         }
       });
     }
 
+    // 获取今天凌晨 0 点的时间戳
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    // 处理每条记录的 todayTotalTokens
+    result = result.map(user => ({
+      ...user,
+      todayTotalTokens: new Date(user.usageUpdatedAt) >= today
+        ? user.todayTotalTokens
+        : 0,
+      currentMonthTotalTokens: new Date(user.usageUpdatedAt) >= firstDayOfMonth
+        ? user.currentMonthTotalTokens
+        : 0,
+    }));
     return result;
   } catch (error) {
     throw new Error('Failed to fetch user list');
