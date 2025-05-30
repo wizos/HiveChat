@@ -1,32 +1,33 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Message } from '@/app/db/schema';
-import { ChatOptions, LLMApi, RequestMessage, MessageContent, MCPTool } from '@/app/adapter/interface';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { Message, ResponseContent, ChatOptions, LLMApi, RequestMessage, MessageContent, MCPTool } from '@/types/llm';
 import useChatStore from '@/app/store/chat';
 import useChatListStore from '@/app/store/chatList';
 import useMcpServerStore from '@/app/store/mcp';
-import { generateTitle } from '@/app/utils';
-import { getLLMInstance } from '@/app/adapter/models';
+import { generateTitle, getLLMInstance } from '@/app/utils';
 import useModelListStore from '@/app/store/modelList';
-import { ResponseContent } from '@/app/adapter/interface';
 import { getChatInfoInServer } from '@/app/chat/actions/chat';
-import { addMessageInServer, getMessagesInServer, deleteMessageInServer, clearMessageInServer } from '@/app/chat/actions/message';
+import { addMessageInServer, getMessagesInServer, deleteMessageInServer, clearMessageInServer, updateMessageWebSearchInServer } from '@/app/chat/actions/message';
 import useGlobalConfigStore from '@/app/store/globalConfig';
-import { localDb } from '@/app/db/localDb';
+import { getSearchResult } from '@/app/chat/actions/chat';
+import { searchResultType, WebSearchResponse } from '@/types/search';
+import { REFERENCE_PROMPT } from '@/app/config/prompts';
+import { useRouter } from 'next/navigation'
 
 const useChat = (chatId: string) => {
-  const { currentModel, setCurrentModel, setCurrentModelExact } = useModelListStore();
+  const { currentModel, setCurrentModelExact } = useModelListStore();
   const [messageList, setMessageList] = useState<Message[]>([]);
   const [isPending, setIsPending] = useState(false);
   const [responseStatus, setResponseStatus] = useState<"done" | "pending">("done");
+  const [searchStatus, setSearchStatus] = useState<searchResultType>("none");
   const [chatBot, setChatBot] = useState<LLMApi | null>(null);
-  const [responseMessage, setResponseMessage] = useState<ResponseContent>({ content: '', reasoning_content: '' });
+  const [responseMessage, setResponseMessage] = useState<ResponseContent>({ content: '', reasoningContent: '' });
   const [isUserScrolling, setIsUserScrolling] = useState(false);
-  const [input, setInput] = useState('');
   const [userSendCount, setUserSendCount] = useState(0);
-  const { chat, initializeChat, historyType, historyCount } = useChatStore();
+  const { chat, initializeChat, setWebSearchEnabled, webSearchEnabled, historyType, historyCount } = useChatStore();
   const { setNewTitle } = useChatListStore();
   const { chatNamingModel } = useGlobalConfigStore();
   const { selectedTools } = useMcpServerStore();
+  const router = useRouter();
 
   useEffect(() => {
     const llmApi = getLLMInstance(currentModel.provider.id);
@@ -40,64 +41,6 @@ const useChat = (chatId: string) => {
       }
     };
   }, [currentModel]);
-
-  useEffect(() => {
-    async function fetchMessages() {
-      try {
-        let messageList: Message[] = [];
-        const result = await getMessagesInServer(chatId);
-        if (result.status === 'success') {
-          messageList = result.data as Message[]
-        }
-        setMessageList(messageList);
-        let tmpUserSendCount = 0;
-        messageList.forEach((item) => {
-          if (item.role === "user") {
-            tmpUserSendCount = tmpUserSendCount + 1;
-          }
-        });
-        setUserSendCount(tmpUserSendCount);
-      } catch (error) {
-        console.error('Error fetching items from database:', error);
-      }
-    }
-    async function fetchLocalMessages() {
-      const localMessage = await localDb.messages.where({ 'chatId': chatId }).toArray();
-      setMessageList(localMessage);
-      setUserSendCount(1);
-      await localDb.messages.clear();
-    }
-
-    async function fetchChatInfo() {
-      const { status, data } = await getChatInfoInServer(chatId);
-      if (status === 'success') {
-        initializeChat(data!);
-        if (data?.defaultProvider && data?.defaultModel) {
-          setCurrentModelExact(data.defaultProvider, data.defaultModel);
-        }
-      }
-    }
-    if (localStorage.getItem('f') === 'home') {
-      initializeChat({
-        id: chatId,
-        createdAt: new Date(),
-      });
-      fetchLocalMessages();
-      localStorage.removeItem('f');
-    } else {
-      setIsPending(true);
-      Promise.all([
-        fetchMessages(),
-        fetchChatInfo()
-      ]).finally(() => {
-        setIsPending(false);
-      });
-    }
-  }, [chatId, initializeChat, setCurrentModelExact]);
-
-  const handleInputChange = (e: any) => {
-    setInput(e.target.value);
-  };
 
   const chatNamingModelStable = useMemo(() => chatNamingModel, [chatNamingModel]);
   const shouldSetNewTitle = useCallback((messages: RequestMessage[]) => {
@@ -124,8 +67,12 @@ const useChat = (chatId: string) => {
     setNewTitle,
   ]);
 
-  const sendMessage = useCallback(async (messages: RequestMessage[], mcpTools?: MCPTool[]) => {
-    let lastUpdate = Date.now();
+  const sendMessage = useCallback(async (
+    messages: RequestMessage[],
+    searchResultStatus?: searchResultType,
+    searchResponse?: WebSearchResponse,
+    mcpTools?: MCPTool[]
+  ) => {
     setResponseStatus("pending");
     const options: ChatOptions = {
       messages: messages,
@@ -133,10 +80,7 @@ const useChat = (chatId: string) => {
       chatId: chatId,
       mcpTools,
       onUpdate: (responseContent: ResponseContent) => {
-        const now = Date.now();
-        // if (now - lastUpdate < 80) return; // 如果距离上次更新小于 50ms，则不更新
         setResponseMessage(responseContent);
-        lastUpdate = now;
       },
       onFinish: async (responseContent: ResponseContent, shouldContinue?: boolean) => {
         const respMessage: Message = {
@@ -144,7 +88,11 @@ const useChat = (chatId: string) => {
           role: "assistant",
           chatId: chatId,
           content: responseContent.content,
-          reasoninContent: responseContent.reasoning_content,
+          reasoninContent: responseContent.reasoningContent,
+          searchStatus: searchResultStatus,
+          inputTokens: responseContent.inputTokens,
+          outputTokens: responseContent.outputTokens,
+          totalTokens: responseContent.totalTokens,
           mcpTools: responseContent.mcpTools,
           providerId: currentModel.provider.id,
           model: currentModel.id,
@@ -152,16 +100,28 @@ const useChat = (chatId: string) => {
           createdAt: new Date()
         };
         setMessageList(prevList => [...prevList, respMessage]);
+        setSearchStatus('none');
+        setResponseMessage({ content: '', reasoningContent: '', mcpTools: [] });
         if (!shouldContinue) {
           setResponseStatus("done");
         }
-        setResponseMessage({ content: '', reasoning_content: '', mcpTools: [] });
+        // 将 searchResponse 同步到数据库的 message 表下， id= responseContent.id 的记录
+        if (responseContent.id) {
+          await updateMessageWebSearchInServer(
+            responseContent.id,
+            (searchResultStatus && searchResultStatus !== 'none') ? true : false,
+            searchResultStatus || 'none',
+            searchResponse);
+        }
       },
       onError: async (error) => {
         const respMessage: Message = {
           role: "assistant",
           chatId: chatId,
           content: error?.message || '',
+          searchEnabled: (searchResultStatus && searchResultStatus !== 'none') ? true : false,
+          searchStatus: searchResultStatus,
+          webSearch: searchResponse,
           providerId: currentModel.provider.id,
           model: currentModel.id,
           type: 'error',
@@ -171,8 +131,8 @@ const useChat = (chatId: string) => {
         };
         setMessageList((m) => ([...m, respMessage]));
         setResponseStatus("done");
-        setResponseMessage({ content: '', reasoning_content: '' });
-        addMessageInServer(respMessage);
+        setSearchStatus('none');
+        setResponseMessage({ content: '', reasoningContent: '' });
       }
     }
     chatBot?.chat(options);
@@ -185,22 +145,26 @@ const useChat = (chatId: string) => {
   const stopChat = () => {
     setResponseStatus("done");
     chatBot?.stopChat((responseContent: ResponseContent) => {
-      if (responseContent.content || responseContent.reasoning_content) {
+      if (responseContent.content || responseContent.reasoningContent) {
         const respMessage: Message = {
           role: "assistant",
           chatId: chatId,
           content: responseContent.content,
+          searchStatus: searchStatus,
           mcpTools: responseContent.mcpTools,
-          reasoninContent: responseContent.reasoning_content,
+          reasoninContent: responseContent.reasoningContent,
+          inputTokens: responseContent.inputTokens,
+          outputTokens: responseContent.outputTokens,
+          totalTokens: responseContent.totalTokens,
           providerId: currentModel.provider.id,
           model: currentModel.id,
           type: 'text',
-          createdAt: new Date()
         };
-        setMessageList((m) => ([...m, respMessage]));
+        setMessageList((m) => ([...m, { ...respMessage, createdAt: new Date() }]));
         addMessageInServer(respMessage);
       }
-      setResponseMessage({ content: '', reasoning_content: '' });
+      setSearchStatus('none');
+      setResponseMessage({ content: '', reasoningContent: '' });
     });
   }
 
@@ -226,10 +190,9 @@ const useChat = (chatId: string) => {
       providerId: currentModel.provider.id,
       model: currentModel.id,
       type: 'break' as 'break',
-      createdAt: new Date()
     };
     addMessageInServer(toAddMessage);
-    setMessageList((m) => ([...m, toAddMessage]));
+    setMessageList((m) => ([...m, { ...toAddMessage, createdAt: new Date() }]));
   }
 
   const prepareMessage = useCallback((newMessage: RequestMessage): RequestMessage[] => {
@@ -272,6 +235,41 @@ const useChat = (chatId: string) => {
     messageList
   ]);
 
+  const handleWebSearch = useCallback(async (message: MessageContent) => {
+    let realSendMessage = message;
+    let searchStatus: searchResultType = 'none';
+    let searchResponse: WebSearchResponse | undefined;
+
+    try {
+      setSearchStatus("searching");
+      const textContent = typeof message === 'string' ? message : '';
+      if (textContent) {
+        const searchResult = await getSearchResult(textContent);
+        
+        if (searchResult.status === 'success') {
+          searchResponse = searchResult.data || undefined;
+          const referenceContent = `\`\`\`json\n${JSON.stringify(searchResult, null, 2)}\n\`\`\``;
+          realSendMessage = REFERENCE_PROMPT.replace('{question}', textContent).replace('{references}', referenceContent);
+          setSearchStatus("done");
+          searchStatus = 'done';
+        } else {
+          setSearchStatus("error");
+          searchStatus = 'error';
+        }
+      }
+    } catch (error) {
+      console.error('handleWebSearch - error:', error);
+      setSearchStatus("error");
+      searchStatus = 'error';
+    }
+
+    return {
+      realSendMessage,
+      searchStatus,
+      searchResponse
+    };
+  }, []);
+
   const handleSubmit = useCallback(async (message: MessageContent) => {
     if (responseStatus === 'pending') {
       return;
@@ -283,29 +281,40 @@ const useChat = (chatId: string) => {
       role: "user",
       chatId: chatId,
       content: message,
+      searchEnabled: webSearchEnabled,
       providerId: currentModel.provider.id,
       model: currentModel.id,
       type: 'text' as const,
-      createdAt: new Date()
     };
 
-    setInput('');
+    setMessageList((m) => ([...m, { ...currentMessage, createdAt: new Date() }]));
+    addMessageInServer(currentMessage);
+    setUserSendCount(userSendCount + 1);
+
+    let realSendMessage = message;
+    let searchStatus: searchResultType = 'none';
+    let searchResponse: WebSearchResponse | undefined = undefined;
+    if (webSearchEnabled) {
+      const result = await handleWebSearch(message);
+      realSendMessage = result.realSendMessage;
+      searchStatus = result.searchStatus;
+      searchResponse = result.searchResponse;
+    }
     const messages = prepareMessage({
       role: "user",
-      content: message,
+      content: realSendMessage,
     })
-    setUserSendCount(userSendCount + 1);
-    sendMessage(messages, selectedTools);
-    addMessageInServer(currentMessage);
-    setMessageList((m) => ([...m, currentMessage]));
+    sendMessage(messages, searchStatus, searchResponse, selectedTools);
   }, [
     chatId,
     responseStatus,
     currentModel,
     userSendCount,
     selectedTools,
+    webSearchEnabled,
     prepareMessage,
     sendMessage,
+    handleWebSearch,
   ]);
 
   const prepareMessageFromIndex = (index: number): RequestMessage[] => {
@@ -351,18 +360,118 @@ const useChat = (chatId: string) => {
     } else {
       // 单独处理重试的逻辑
       setResponseStatus("pending");
-      setIsUserScrolling(false);
-      setInput('');
       const messages: RequestMessage[] = prepareMessageFromIndex(index);
       sendMessage(messages);
       shouldSetNewTitle(messages)
     }
   }
 
+  useEffect(() => {
+    const initializeChatData = async () => {
+      try {
+        setIsPending(true);
+        const { status, data } = await getChatInfoInServer(chatId);
+        if (status === 'success') {
+          initializeChat(data!);
+          if (data?.defaultProvider && data?.defaultModel) {
+            setCurrentModelExact(data.defaultProvider, data.defaultModel);
+          }
+        }
+        
+        let messageList: Message[] = [];
+        const result = await getMessagesInServer(chatId);
+        if (result.status === 'success') {
+          messageList = result.data as Message[];
+        }
+        setMessageList(messageList);
+        
+        // 计算用户消息数量
+        const userMessageCount = messageList.filter(item => item.role === "user").length;
+        setUserSendCount(userMessageCount);
+        
+        setIsPending(false);
+      } catch (error) {
+        console.error('Error in chat initialization:', error);
+        setIsPending(false);
+      }
+    };
+
+    initializeChatData();
+  }, [chatId, initializeChat, setCurrentModelExact]);
+
+  const shouldSetNewTitleRef = useRef(shouldSetNewTitle);
+  const processedMessageIds = useRef(new Set<string>());
+  const hasInitialized = useRef(false);
+
+  useEffect(() => {
+    const handleInitialResponse = async () => {
+      if (hasInitialized.current) {
+        return;
+      }
+
+      try {
+        // 使用URL查询参数检测是否来自首页
+        const urlParams = new URLSearchParams(window.location.search);
+        const fromHome = urlParams.get('f') === 'home';
+        if (!fromHome) return;
+        
+        // 清除URL参数
+        router.replace(`/chat/${chatId}`);
+        
+        // 检查是否有未回复的用户消息
+        if (messageList.length === 1 && messageList[0].role === 'user') {
+          const userMessage = messageList[0];
+          // 创建一个消息标识符
+          const messageId = `${userMessage.id || '-'}`;
+          
+          // 检查是否已处理过这条消息
+          if (processedMessageIds.current.has(messageId)) {
+            return;
+          }
+          
+          // 标记消息为已处理
+          processedMessageIds.current.add(messageId);
+          hasInitialized.current = true;
+          
+          const _searchEnabled = userMessage.searchEnabled || false;
+          const question = userMessage.content;
+          
+          // 处理请求发送
+          let realSendMessage = question;
+          let searchStatus: searchResultType = 'none';
+          let searchResponse = undefined;
+          
+          if (_searchEnabled) {
+            setResponseStatus('pending');
+            try {
+              const result = await handleWebSearch(question);
+              realSendMessage = result.realSendMessage;
+              searchStatus = result.searchStatus;
+              searchResponse = result.searchResponse;
+            } catch (error) {
+              console.error('handleInitialResponse - web search error:', error);
+              searchStatus = 'error';
+            }
+          }
+          
+          const messages = [{ role: 'user' as const, content: realSendMessage }];
+          await sendMessage(messages, searchStatus, searchResponse, selectedTools);
+          shouldSetNewTitleRef.current([{ role: 'user' as const, content: question }]);
+        }
+      } catch (error) {
+        console.error('handleInitialResponse - error:', error);
+      }
+    };
+    
+    if (messageList.length > 0) {
+      handleInitialResponse();
+    }
+  }, [messageList, chatId, selectedTools, router, sendMessage, handleWebSearch]);
+
   return {
-    input,
     chat,
     messageList,
+    searchStatus,
     responseStatus,
     responseMessage,
     historyType,
@@ -370,7 +479,6 @@ const useChat = (chatId: string) => {
     isUserScrolling,
     currentModel,
     isPending,
-    handleInputChange,
     handleSubmit,
     sendMessage,
     shouldSetNewTitle,
