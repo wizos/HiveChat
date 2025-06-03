@@ -1,9 +1,11 @@
 import { addMessageInServer } from '@/app/chat/actions/message';
+import { updateUsage } from './actions';
 
 export default async function proxyOpenAiStream(response: Response,
   messageInfo: {
     chatId?: string,
     model: string,
+    userId: string,
     providerId: string
   }): Promise<Response> {
   const transformStream = new TransformStream({
@@ -52,10 +54,12 @@ export default async function proxyOpenAiStream(response: Response,
                 }
               }
             } else if (parsedLine.type === 'message_stop') {
-              const usage = parsedLine.usage || parsedLine['usage'];
-              promptTokens = usage?.inputTokenCount || null;
-              completionTokens = usage?.outputTokenCount || null;
-              totalTokens = promptTokens + completionTokens;
+              const usage = parsedLine.usage || parsedLine['amazon-bedrock-invocationMetrics'];
+              if (usage) {
+                promptTokens = usage?.inputTokenCount || null;
+                completionTokens = usage?.outputTokenCount || null;
+                totalTokens = promptTokens && completionTokens ? promptTokens + completionTokens : null;
+              }
             }
           } catch (error) {
             console.error("JSON parse error:", error, "in line:", cleanedLine);
@@ -85,6 +89,16 @@ export default async function proxyOpenAiStream(response: Response,
         const metadataString = `data: ${JSON.stringify({ metadata: metadataEvent })}\n\n`;
         controller.enqueue(new TextEncoder().encode(metadataString));
       }
+      updateUsage(messageInfo.userId, {
+        chatId: messageInfo.chatId,
+        date: new Date().toISOString().split('T')[0],
+        userId: messageInfo.userId,
+        modelId: messageInfo.model,
+        providerId: messageInfo.providerId,
+        inputTokens: promptTokens || 0,
+        outputTokens: completionTokens || 0,
+        totalTokens: totalTokens || 0,
+      });
       controller.close();
     }
   });

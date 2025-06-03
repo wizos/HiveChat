@@ -1,7 +1,7 @@
 'use client'
 import React, { useState, useEffect } from 'react';
-import { updatePassword } from '../actions';
-import { Button, Modal, Form, Input, Select, message } from 'antd';
+import { getUserUsage, updatePassword } from '../actions';
+import { Button, Modal, Form, Input, Select, Progress, message } from 'antd';
 import { TranslationOutlined } from '@ant-design/icons';
 import { useSession, signOut } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
@@ -16,9 +16,16 @@ const AccountPage = () => {
   const t = useTranslations('Settings');
   const [currentLang, setCurrentLang] = useState('zh');
   const [form] = Form.useForm();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submiting, setSubmiting] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { data: session } = useSession();
+  const [usageInfo, setUsageInfo] = useState<{
+    todayTotalTokens: number;
+    currentMonthTotalTokens: number;
+    monthlyTokenLimit: number;
+    tokenLimitType: string;
+  }>();
 
   useEffect(() => {
     // 从 cookie 中获取语言设置
@@ -47,6 +54,16 @@ const AccountPage = () => {
     }
   }, []);
 
+  useEffect(() => {
+    const fetchUsage = async () => {
+      setLoading(true)
+      const usageResult = await getUserUsage();
+      setUsageInfo(usageResult);
+      setLoading(false)
+    }
+    fetchUsage();
+  }, []);
+
   const handleOk = () => {
     form.submit();
   };
@@ -57,7 +74,7 @@ const AccountPage = () => {
   };
 
   const onFinish = async (values: FormValues) => {
-    setLoading(true);
+    setSubmiting(true);
     const result = await updatePassword(session?.user.email || 'x', values.oldPassword, values.password);
     if (result.success) {
       message.success('更新成功');
@@ -66,11 +83,49 @@ const AccountPage = () => {
     } else {
       message.error(result.message)
     }
-    setLoading(false);
+    setSubmiting(false);
   };
 
   return (
     <div>
+      <div className='flex flex-row justify-between mt-6 p-6 border border-gray-200 rounded-md'>
+        <div className='flex items-center w-32'>
+          <span className='text-sm font-medium'>{t('usage')}:</span>
+        </div>
+        {
+          loading ? <div className='flex items-center w-full'></div>
+            :
+            <div className='flex items-center w-full'>
+              {
+                usageInfo?.tokenLimitType === 'unlimited' &&
+                <Progress
+                  percent={1}
+                  status="normal"
+                  format={() => {
+                    return <div className='flex flex-col items-center'>
+                      <span className='text-xs'>{usageInfo.currentMonthTotalTokens} / {t('unlimitedTokens')}</span>
+                      <span className='text-xs text-gray-500'>({t('usedThisMonth')} / {t('monthlyLimit')}) </span>
+                    </div>
+                  }}
+                />
+              }
+              {usageInfo?.tokenLimitType === 'limited' && usageInfo?.monthlyTokenLimit &&
+                <Progress
+                  percent={Math.round(usageInfo.currentMonthTotalTokens * 100 / usageInfo.monthlyTokenLimit)}
+                  status="normal"
+                  format={() => {
+                    return <div className='flex flex-col items-center'>
+                      <span className='text-xs'>{usageInfo.currentMonthTotalTokens} / {usageInfo.monthlyTokenLimit} Tokens</span>
+                      <span className='text-xs text-gray-500'>({t('usedThisMonth')} / {t('monthlyLimit')})</span>
+                    </div>
+                  }}
+                />
+              }
+            </div>
+        }
+
+      </div>
+
       <div className='flex flex-row justify-between mt-6 p-6 border border-gray-200 rounded-md'>
         {session?.user.name ?
           <div className='flex items-center'>
@@ -122,7 +177,7 @@ const AccountPage = () => {
         onOk={handleOk}
         onCancel={handleCancel}
         width={400}
-        confirmLoading={loading}
+        confirmLoading={submiting}
       >
         <Form
           layout="vertical"
