@@ -1,6 +1,8 @@
-import { ChatOptions, RequestMessage } from '@/app/adapter/interface';
-import { ResponseContent } from '@/app/adapter/interface';
-import { getLLMInstance } from '@/app/adapter/models';
+import { ChatOptions, RequestMessage } from '@/types/llm';
+import { ResponseContent } from '@/types/llm';
+import ChatGPTApi from '@/app/provider/OpenAIProvider';
+import Claude from '@/app/provider/ClaudeProvider';
+import GeminiApi from '@/app/provider/GeminiProvider';
 
 export function prettyObject(msg: any) {
   const obj = msg;
@@ -33,7 +35,18 @@ export function generateTitle(messages: RequestMessage[],
     onUpdate: (responseContent: ResponseContent) => {
     },
     onFinish: async (responseContent: ResponseContent) => {
-      onFinish(responseContent.content);
+      if (typeof responseContent.content === 'string') {
+        onFinish(responseContent.content);
+      } else if (Array.isArray(responseContent.content)) {
+        const textContent = responseContent.content.find(item => item.type === 'text');
+        if (textContent && 'text' in textContent) {
+          onFinish(textContent.text);
+        } else {
+          onFinish("闲聊1");
+        }
+      } else {
+        onFinish("闲聊2");
+      }
     },
     onError: async (err?: Error) => {
       onError();
@@ -53,3 +66,19 @@ export const fileToBase64 = (file: File): Promise<string> => {
     };
   });
 };
+
+export const getLLMInstance = (providerId: string) => {
+  let llmApi;
+  switch (providerId) {
+    case 'claude':
+      llmApi = new Claude();
+      break;
+    case 'gemini':
+      llmApi = new GeminiApi();
+      break;
+    default:
+      llmApi = new ChatGPTApi(providerId);
+      break;
+  }
+  return llmApi;
+}
