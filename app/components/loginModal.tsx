@@ -14,8 +14,8 @@ import FeishuLogin from "@/app/components/FeishuLoginButton"
 import WecomLogin from "@/app/components/WecomLoginButton"
 import DingdingLogin from "@/app/components/DingdingLoginButton"
 import { useTranslations } from 'next-intl';
-import useModelListStore from '../store/modelList';
-import { fetchAvailableLlmModels } from '../adapter/actions';
+import useModelListStore from '@/app/store/modelList';
+import { fetchAvailableLlmModels } from '@/app/admin/llm/actions';
 
 interface LoginFormValues {
   email: string;
@@ -31,7 +31,7 @@ export default function LoginModal() {
   const [isPending, setIsPending] = useState(true);
   const [authProviders, setAuthProviders] = useState<string[]>([]);
   const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
-  const { initModelList, setCurrentModel, initAllProviderList } = useModelListStore();
+  const { initModelList, setCurrentModel } = useModelListStore();
   useEffect(() => {
     const fetchSettings = async () => {
       const resultValue = await fetchAppSettings('isRegistrationOpen');
@@ -52,7 +52,6 @@ export default function LoginModal() {
     });
     setLoading(false);
     if (response?.error) {
-      console.log(response?.error);
       setError(t('passwordError'));
       return;
     }

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { LLMModel, LLMModelProvider, LLMModelRealId } from '@/app/adapter/interface';
+import { LLMModel, LLMModelProvider, LLMModelRealId } from '@/types/llm';
 import { llmModelType } from '@/app/db/schema';
 
 interface IModelListStore {
@@ -26,20 +26,21 @@ interface IModelListStore {
   updateCustomModel: (modelId: string, model: LLMModel) => Promise<void>;
   deleteCustomModel: (modelId: string) => Promise<void>;
   setCurrentModel: (model: string) => void;
-  setCurrentModelExact: (providerId: string, modelId: string,) => void
+  setCurrentModelExact: (providerId: string, modelId: string,) => void;
 }
 
 const useModelListStore = create<IModelListStore>((set, get) => ({
   currentModel: {
-    id: 'gpt-4o',
-    displayName: 'GPT 4o',
+    id: 'deepseek-chat',
+    displayName: 'Deepseek V3',
     supportVision: true,
     supportTool: true,
     maxTokens: 131072,
     selected: true,
     provider: {
-      id: 'openai',
-      providerName: 'Open AI',
+      id: 'Deepseek',
+      providerName: 'Deepseek',
+      apiStyle: 'openai'
     }
   },
   providerList: [],
@@ -74,11 +75,14 @@ const useModelListStore = create<IModelListStore>((set, get) => ({
       maxTokens: model.maxTokens || undefined,
       supportVision: model.supportVision || undefined,
       supportTool: model.supportTool || undefined,
+      builtInImageGen: model.builtInImageGen || false,
+      builtInWebSearch: model.builtInWebSearch || false,
       selected: model.selected || false,
       type: model.type ?? 'default',
       provider: {
         id: model.providerId,
         providerName: model.providerName,
+        apiStyle: model.apiStyle,
       }
     }));
 
@@ -90,6 +94,7 @@ const useModelListStore = create<IModelListStore>((set, get) => ({
             id: model.providerId,
             providerName: model.providerName,
             providerLogo: model.providerLogo,
+            apiStyle: model.apiStyle,
             status: true,
           }
         ])
@@ -116,6 +121,7 @@ const useModelListStore = create<IModelListStore>((set, get) => ({
       provider: {
         id: model.providerId,
         providerName: model.providerName,
+        apiStyle: model.apiStyle,
         providerLogo: model.providerLogo,
       }
     }));
@@ -128,6 +134,7 @@ const useModelListStore = create<IModelListStore>((set, get) => ({
             id: model.providerId,
             providerName: model.providerName,
             providerLogo: model.providerLogo,
+            apiStyle: model.apiStyle,
             status: true,
           }
         ])
@@ -282,7 +289,7 @@ const useModelListStore = create<IModelListStore>((set, get) => ({
       ...state,
       modelList: state.modelList.filter((model) => model.id !== modelId),
     }));
-  }
+  },
 }));
 
 export default useModelListStore;

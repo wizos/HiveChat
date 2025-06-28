@@ -13,6 +13,7 @@ export async function getLlmOriginConfigByProvider(providerId: string) {
         endpoint: result.endpoint,
         isActive: result.isActive,
         apikey: result.apikey,
+        apiStyle: result.apiStyle,
         type: result.type,
       };
     } else {
@@ -20,6 +21,7 @@ export async function getLlmOriginConfigByProvider(providerId: string) {
         endpoint: '',
         isActive: false,
         apikey: null,
+        apiStyle: 'openai',
         type: 'default',
       };
     }
@@ -39,12 +41,14 @@ export async function getLlmConfigByProvider(providerId: string) {
       return {
         endpoint,
         isActive: result.isActive,
+        apiStyle: result.apiStyle,
         apikey: result.apikey
       };
     } else {
       return {
         endpoint,
         isActive: false,
+        apiStyle: 'oepnai',
         apikey: null
       };
     }
@@ -54,7 +58,7 @@ export async function getLlmConfigByProvider(providerId: string) {
   }
 }
 
-export async function completeEndpoint(providerId: string, inputUrl?: string | null) {
+export async function completeEndpoint(providerId: string, apiStyle: string, inputUrl?: string | null) {
   const endpointMap = {
     'claude': 'https://api.anthropic.com/v1/messages',
     'deepseek': 'https://api.deepseek.com/v1/chat/completions',
@@ -63,6 +67,7 @@ export async function completeEndpoint(providerId: string, inputUrl?: string | n
     'moonshot': 'https://api.moonshot.cn/v1/chat/completions',
     'ollama': 'http://127.0.0.1:11434/v1/chat/completions',
     'openai': 'https://api.openai.com/v1/chat/completions',
+    'openai_response': 'https://api.openai.com/v1/responses',
     'qwen': 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
     'qianfan': 'https://qianfan.baidubce.com/v2/chat/completions',
     'siliconflow': 'https://api.siliconflow.cn/v1/chat/completions',
@@ -87,14 +92,39 @@ export async function completeEndpoint(providerId: string, inputUrl?: string | n
     }
     return apiUrl;
   }
-  if (inputUrl.endsWith('completions')) {
-    apiUrl = inputUrl;
-  } else if (inputUrl.endsWith('v1')) {
-    apiUrl = inputUrl + '/chat/completions';
-  } else if (inputUrl.endsWith('/')) {
-    apiUrl = inputUrl + 'v1/chat/completions';
-  } else {
-    apiUrl = inputUrl + '/chat/completions';
+  if (apiStyle === 'openai_response') {
+    if (inputUrl.endsWith('/responses')) {
+      apiUrl = inputUrl;
+    } else if (inputUrl?.endsWith('/v1')) {
+      apiUrl = inputUrl + '/responses';
+    } else if (inputUrl?.endsWith('/')) {
+      apiUrl = inputUrl + 'v1/responses';
+    } else {
+      apiUrl = inputUrl + '/responses';
+    }
+    return apiUrl;
   }
-  return apiUrl;
+  if (apiStyle === 'openai') {
+    if (inputUrl.endsWith('completions')) {
+      apiUrl = inputUrl;
+    } else if (inputUrl.endsWith('v1')) {
+      apiUrl = inputUrl + '/chat/completions';
+    } else if (inputUrl.endsWith('/')) {
+      apiUrl = inputUrl + 'v1/chat/completions';
+    } else {
+      apiUrl = inputUrl + '/chat/completions';
+    }
+    return apiUrl;
+  } else {
+    if (inputUrl.endsWith('completions')) {
+      apiUrl = inputUrl;
+    } else if (inputUrl.endsWith('v1')) {
+      apiUrl = inputUrl + '/chat/completions';
+    } else if (inputUrl.endsWith('/')) {
+      apiUrl = inputUrl + 'v1/chat/completions';
+    } else {
+      apiUrl = inputUrl + '/chat/completions';
+    }
+    return apiUrl;
+  }
 }

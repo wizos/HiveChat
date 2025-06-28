@@ -1,7 +1,8 @@
-import { LLMModel } from "@/app/adapter/interface"
-export const provider = {
+import { LLMModel, LLMModelProvider } from "@/types/llm"
+export const provider: LLMModelProvider = {
   id: 'qianfan',
   providerName: '百度云千帆',
+  apiStyle: 'openai',
 }
 
 export const modelList: LLMModel[] = [
